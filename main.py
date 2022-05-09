@@ -27,6 +27,9 @@ from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, load_pretrained, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
 
+from tensorboardX import SummaryWriter
+
+
 try:
     # noinspection PyUnresolvedReferences
     from apex import amp
@@ -83,6 +86,7 @@ def main(config):
     model = build_model(config)
     model.cuda()
     logger.info(str(model))
+    summary_writer = SummaryWriter(log_dir=config.OUTPUT)
 
     optimizer = build_optimizer(config, model)
     if config.AMP_OPT_LEVEL != "O0":
@@ -138,24 +142,26 @@ def main(config):
 
     logger.info("Start training")
     start_time = time.time()
+    max_epoch = -1
     for epoch in range(config.TRAIN.START_EPOCH, config.TRAIN.EPOCHS):
         data_loader_train.sampler.set_epoch(epoch)
 
-        train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler)
+        train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler, summary_writer)
         if dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1)):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, logger)
 
         acc1, acc5, loss = validate(config, data_loader_val, model)
         logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
         max_accuracy = max(max_accuracy, acc1)
-        logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+        max_epoch = epoch if max_accuracy == acc1 else max_epoch
+        logger.info(f'Max accuracy: {max_accuracy:.2f}%, Epoch: {max_epoch}')
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
 
 
-def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mixup_fn, lr_scheduler):
+def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mixup_fn, lr_scheduler, summary_writer):
     model.train()
     optimizer.zero_grad()
 
@@ -220,7 +226,14 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         norm_meter.update(grad_norm)
         batch_time.update(time.time() - end)
         end = time.time()
+        
+        metrics = {
+                   'lr': optimizer.param_groups[0]['lr'],
+                   'loss': loss_meter.val,
+                   'grad_norm': norm_meter.val,
+                  }
 
+        # Write metrics to screen
         if idx % config.PRINT_FREQ == 0:
             lr = optimizer.param_groups[0]['lr']
             memory_used = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
@@ -232,6 +245,11 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                 f'loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
                 f'grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})\t'
                 f'mem {memory_used:.0f}MB')
+            
+            # Write metrics to tensorboard
+            for key, value in metrics.items():
+                summary_writer.add_scalar(key, value, epoch * num_steps + idx)
+
     epoch_time = time.time() - start
     logger.info(f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))}")
 
