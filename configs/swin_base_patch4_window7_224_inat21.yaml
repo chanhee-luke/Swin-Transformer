@@ -14,6 +14,6 @@ TRAIN:
     EPOCHS: 90
     WARMUP_EPOCHS: 5
     WEIGHT_DECAY: 0.05
-    BASE_LR: 1.25e-4 # 4096 batch-size
+    BASE_LR: 1.25e-4
     WARMUP_LR: 1.25e-7
     MIN_LR: 1.25e-6
