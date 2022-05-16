@@ -28,6 +28,9 @@ Note: access code for `baidu` is `swin`.
 
 ### Install
 
+We recommend using the pytorch docker `nvcr>=21.05` by
+nvidia: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch.
+
 - Clone this repo:
 
 ```bash
@@ -42,26 +45,18 @@ conda create -n swin python=3.7 -y
 conda activate swin
 ```
 
-- Install `CUDA==10.1` with `cudnn7` following
+- Install `CUDA>=10.2` with `cudnn>=7` following
   the [official installation instructions](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html)
-- Install `PyTorch==1.7.1` and `torchvision==0.8.2` with `CUDA==10.1`:
+- Install `PyTorch>=1.8.0` and `torchvision>=0.9.0` with `CUDA>=10.2`:
 
 ```bash
-conda install pytorch==1.7.1 torchvision==0.8.2 cudatoolkit=10.1 -c pytorch
+conda install pytorch==1.8.0 torchvision==0.9.0 cudatoolkit=10.2 -c pytorch
 ```
 
-- Install `timm==0.3.2`:
+- Install `timm==0.4.12`:
 
 ```bash
-pip install timm==0.3.2
-```
-
-- Install `Apex`:
-
-```bash
-git clone https://github.com/NVIDIA/apex
-cd apex
-pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+pip install timm==0.4.12
 ```
 
 - Install other requirements:
@@ -128,6 +123,24 @@ load data:
   n01440764/n01440764_10040.JPEG	0
   n01440764/n01440764_10042.JPEG	0
   ```
+- For ImageNet-22K dataset, make a folder named `fall11_whole` and move all images to labeled sub-folders in this
+  folder. Then download the train-val split
+  file ([ILSVRC2011fall_whole_map_train.txt](https://github.com/SwinTransformer/storage/releases/download/v2.0.1/ILSVRC2011fall_whole_map_train.txt)
+  & [ILSVRC2011fall_whole_map_val.txt](https://github.com/SwinTransformer/storage/releases/download/v2.0.1/ILSVRC2011fall_whole_map_val.txt))
+  , and put them in the parent directory of `fall11_whole`. The file structure should look like:
+
+  ```bash
+    $ tree imagenet22k/
+    imagenet22k/
+    ├── ILSVRC2011fall_whole_map_train.txt
+    ├── ILSVRC2011fall_whole_map_val.txt
+    └── fall11_whole
+        ├── n00004475
+        ├── n00005787
+        ├── n00006024
+        ├── n00006484
+        └── ...
+  ```
 
 ### Evaluation
 
@@ -142,10 +155,10 @@ For example, to evaluate the `Swin-B` with a single GPU:
 
 ```bash
 python -m torch.distributed.launch --nproc_per_node 1 --master_port 12345 main.py --eval \
---cfg configs/swin_base_patch4_window7_224.yaml --resume swin_base_patch4_window7_224.pth --data-path <imagenet-path>
+--cfg configs/swin/swin_base_patch4_window7_224.yaml --resume swin_base_patch4_window7_224.pth --data-path <imagenet-path>
 ```
 
-### Training from scratch
+### Training from scratch on ImageNet-1K
 
 To train a `Swin Transformer` on ImageNet from scratch, run:
 
@@ -175,22 +188,32 @@ For example, to train `Swin Transformer` with 8 GPU on a single node for 300 epo
 
 ```bash
 python -m torch.distributed.launch --nproc_per_node 8 --master_port 12345  main.py \
---cfg configs/swin_tiny_patch4_window7_224.yaml --data-path <imagenet-path> --batch-size 128 
+--cfg configs/swin/swin_tiny_patch4_window7_224.yaml --data-path <imagenet-path> --batch-size 128 
 ```
 
 `Swin-S`:
 
 ```bash
 python -m torch.distributed.launch --nproc_per_node 8 --master_port 12345  main.py \
---cfg configs/swin_small_patch4_window7_224.yaml --data-path <imagenet-path> --batch-size 128 
+--cfg configs/swin/swin_small_patch4_window7_224.yaml --data-path <imagenet-path> --batch-size 128 
 ```
 
 `Swin-B`:
 
 ```bash
 python -m torch.distributed.launch --nproc_per_node 8 --master_port 12345  main.py \
---cfg configs/swin_base_patch4_window7_224.yaml --data-path <imagenet-path> --batch-size 64 \
+--cfg configs/swin/swin_base_patch4_window7_224.yaml --data-path <imagenet-path> --batch-size 64 \
 --accumulation-steps 2 [--use-checkpoint]
+```
+
+### Pre-training on ImageNet-22K
+
+For example, to pre-train a `Swin-B` model on ImageNet-22K:
+
+```bash
+python -m torch.distributed.launch --nproc_per_node 8 --master_port 12345  main.py \
+--cfg configs/swin/swin_base_patch4_window7_224_22k.yaml --data-path <imagenet22k-path> --batch-size 64 \
+--accumulation-steps 8 [--use-checkpoint]
 ```
 
 ### Fine-tuning on higher resolution
@@ -199,7 +222,7 @@ For example, to fine-tune a `Swin-B` model pre-trained on 224x224 resolution to 
 
 ```bashs
 python -m torch.distributed.launch --nproc_per_node 8 --master_port 12345  main.py \
---cfg configs/swin_base_patch4_window12_384_finetune.yaml --pretrained swin_base_patch4_window7_224.pth \
+--cfg configs/swin/swin_base_patch4_window12_384_finetune.yaml --pretrained swin_base_patch4_window7_224.pth \
 --data-path <imagenet-path> --batch-size 64 --accumulation-steps 2 [--use-checkpoint]
 ```
 
@@ -209,7 +232,7 @@ For example, to fine-tune a `Swin-B` model pre-trained on ImageNet-22K(21K):
 
 ```bashs
 python -m torch.distributed.launch --nproc_per_node 8 --master_port 12345  main.py \
---cfg configs/swin_base_patch4_window7_224_22kto1k_finetune.yaml --pretrained swin_base_patch4_window7_224_22k.pth \
+--cfg configs/swin/swin_base_patch4_window7_224_22kto1k_finetune.yaml --pretrained swin_base_patch4_window7_224_22k.pth \
 --data-path <imagenet-path> --batch-size 64 --accumulation-steps 2 [--use-checkpoint]
 ```
 
@@ -219,5 +242,5 @@ To measure the throughput, run:
 
 ```bash
 python -m torch.distributed.launch --nproc_per_node 1 --master_port 12345  main.py \
---cfg <config-file> --data-path <imagenet-path> --batch-size 64 --throughput --amp-opt-level O0
+--cfg <config-file> --data-path <imagenet-path> --batch-size 64 --throughput --disable_amp
 ```
